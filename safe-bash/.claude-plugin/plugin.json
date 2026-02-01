@@ -4,6 +4,5 @@
   "description": "Detects and blocks dangerous Bash commands before execution using pattern matching and AI-powered analysis",
   "author": {
     "name": "Virtue-AI"
-  },
-  "hooks": "../hooks/hooks.json"
+  }
 }

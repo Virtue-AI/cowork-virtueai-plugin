@@ -1,12 +1,13 @@
 {
   "name": "virtue-ai-plugins",
-  "description": "Virtue-AI plugins for Claude Code and Cowork",
+  "owner": {
+    "name": "Virtue-AI"
+  },
   "plugins": [
     {
       "name": "safe-bash",
-      "source": "./plugins/safe-bash",
-      "description": "Detects and blocks dangerous Bash commands before execution using pattern matching and AI-powered analysis",
-      "keywords": ["security", "bash", "protection", "hooks"]
+      "source": "./safe-bash",
+      "description": "Detects and blocks dangerous Bash commands before execution using pattern matching and AI-powered analysis"
     }
   ]
 }
