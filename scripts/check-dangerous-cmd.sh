@@ -4,9 +4,7 @@
 # Reads tool call information from stdin, detects and blocks dangerous Bash commands
 # Uses both pattern matching and AI model judgment for enhanced security
 #
-# Exit codes:
-#   0 - Allow execution
-#   2 - Block execution (dangerous command)
+# When a dangerous command is detected, returns a JSON decision to let the user confirm
 #
 
 # ============================================
@@ -26,21 +24,38 @@ fi
 # Read JSON input from stdin
 INPUT=$(cat)
 
-# Extract the command content
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+# Extract command using pure bash (handles basic JSON parsing)
+# Looks for "command": "..." or "command":"..."
+extract_json_value() {
+  local json="$1"
+  local key="$2"
+  # Remove newlines and extract value after the key
+  echo "$json" | tr -d '\n' | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+COMMAND=$(extract_json_value "$INPUT" "command")
 
 # If no command, allow execution
 if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
+# Unescape common JSON escape sequences
+unescape_json() {
+  local str="$1"
+  str="${str//\\n/$'\n'}"
+  str="${str//\\t/$'\t'}"
+  str="${str//\\\"/\"}"
+  str="${str//\\\\/\\}"
+  echo "$str"
+}
+
+COMMAND=$(unescape_json "$COMMAND")
+
 # List of dangerous command patterns
 DANGEROUS_PATTERNS=(
   # Dangerous delete operations
-  "rm[[:space:]]+-rf[[:space:]]+/"
-  "rm[[:space:]]+-rf[[:space:]]+~"
-  "rm[[:space:]]+-rf[[:space:]]+\*"
-  "rm[[:space:]]+-fr[[:space:]]+/"
+  "rm[[:space:]]+-[rf]*[rf][[:space:]]+[/~\*]"
   "rm[[:space:]].*--no-preserve-root"
 
   # Format/destroy disk
@@ -53,43 +68,41 @@ DANGEROUS_PATTERNS=(
   "chown[[:space:]]+-R.*/"
 
   # Overwrite system files
-  ">[[:space:]]*/dev/sda"
-  ">[[:space:]]*/dev/null.*<"
+  ">[[:space:]]*/dev/sd"
   "mv[[:space:]]+/[[:space:]]+"
 
-  # Dangerous network operations
-  "curl.*\|.*sh"
-  "wget.*\|.*sh"
-  "curl.*\|.*bash"
-  "wget.*\|.*bash"
-
-  # Clear history/logs
-  "history[[:space:]]+-c"
-  ">[[:space:]]*/var/log/"
-
   # Shutdown/reboot
-  "shutdown"
-  "reboot"
-  "init[[:space:]]+0"
-  "init[[:space:]]+6"
-  "halt"
-  "poweroff"
+  "(shutdown|reboot|halt|poweroff)"
+  "init[[:space:]]+[06]"
 )
+
+# Output JSON decision to let user confirm
+output_ask_decision() {
+  local reason="$1"
+  echo "{\"permissionDecision\": \"ask\", \"permissionDecisionReason\": \"$reason\"}"
+  exit 0
+}
 
 # Check if command matches any dangerous pattern
 for pattern in "${DANGEROUS_PATTERNS[@]}"; do
   if echo "$COMMAND" | grep -qE "$pattern"; then
-    echo "🚫 Blocked dangerous command: matches pattern '$pattern'" >&2
-    echo "Original command: $COMMAND" >&2
-    exit 2
+    output_ask_decision "⚠️ Potentially dangerous command detected (matches pattern: $pattern). Please review: $COMMAND"
   fi
 done
 
+# Escape string for JSON
+escape_json() {
+  local str="$1"
+  str="${str//\\/\\\\}"
+  str="${str//\"/\\\"}"
+  str="${str//$'\n'/\\n}"
+  str="${str//$'\t'/\\t}"
+  str="${str//$'\r'/\\r}"
+  echo "$str"
+}
+
 # If AI check is enabled, use GPT model for additional judgment
 if [ "$AI_CHECK_ENABLED" = true ]; then
-  # Escape the command for JSON
-  ESCAPED_COMMAND=$(echo "$COMMAND" | jq -Rs '.')
-
   # Build the prompt
   PROMPT="You are a security assistant. Analyze the following bash command and determine if it is dangerous or potentially harmful to the system.
 
@@ -103,7 +116,14 @@ Dangerous commands include but are not limited to:
 - Commands that could compromise system security
 - Commands that could cause denial of service
 
+Be especially careful with curl/wget commands:
+- Piping curl/wget output directly to sh/bash is very dangerous if the URL is unknown or untrusted
+- Downloading from well-known trusted sources (e.g., official package managers, github.com, official software sites) is generally safe
+- Downloading from unknown or suspicious URLs and executing them is dangerous
+
 Respond with ONLY one word: 'SAFE' if the command is safe to execute, or 'DANGEROUS' if it should be blocked. Do not include any other text."
+
+  ESCAPED_PROMPT=$(escape_json "$PROMPT")
 
   # Call OpenAI API using gpt-4o-mini model
   RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
@@ -114,23 +134,21 @@ Respond with ONLY one word: 'SAFE' if the command is safe to execute, or 'DANGER
       \"messages\": [
         {
           \"role\": \"user\",
-          \"content\": $(echo "$PROMPT" | jq -Rs '.')
+          \"content\": \"$ESCAPED_PROMPT\"
         }
       ],
       \"max_tokens\": 10,
       \"temperature\": 0
     }" 2>/dev/null)
 
-  # Extract the model's response
-  AI_RESULT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+  # Extract result using pure bash - look for "content": "..." in the response
+  AI_RESULT=$(echo "$RESPONSE" | tr -d '\n' | sed -n 's/.*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')
 
   # Check if API call was successful
   if [ -z "$AI_RESULT" ]; then
     echo "⚠️  Warning: AI check failed, falling back to pattern matching only" >&2
-  elif [ "$AI_RESULT" = "DANGEROUS" ]; then
-    echo "🚫 Blocked by AI: Command deemed dangerous by security model" >&2
-    echo "Original command: $COMMAND" >&2
-    exit 2
+  elif echo "$AI_RESULT" | grep -qi "dangerous"; then
+    output_ask_decision "🤖 AI detected potentially dangerous command. Please review: $COMMAND"
   fi
 fi
 
