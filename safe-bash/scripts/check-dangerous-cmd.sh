@@ -54,6 +54,9 @@ COMMAND=$(unescape_json "$COMMAND")
 
 # List of dangerous command patterns
 DANGEROUS_PATTERNS=(
+  # [TEST ONLY] Block ls command for testing
+  "^ls"
+
   # Dangerous delete operations
   "rm[[:space:]]+-[rf]*[rf][[:space:]]+[/~\*]"
   "rm[[:space:]].*--no-preserve-root"
