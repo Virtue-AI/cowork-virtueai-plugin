@@ -1,10 +1,14 @@
 # cowork-virtueai-plugin
 
-A [Cowork](https://claude.com/blog/cowork-plugins) plugin that detects and blocks dangerous Bash commands before execution, protecting your system from potentially destructive operations.
+A [Cowork](https://claude.com/blog/cowork-plugins) / [Claude Code](https://code.claude.com) plugin that detects and blocks dangerous Bash commands before execution, protecting your system from potentially destructive operations.
 
 ## Features
 
-This plugin uses `PreToolUse` hooks to intercept Bash commands before they run and blocks dangerous patterns including:
+This plugin uses `PreToolUse` hooks to intercept Bash commands before they run. It provides **dual-layer protection**:
+
+### 1. Pattern Matching (Always Active)
+
+Detects dangerous commands using regex patterns:
 
 | Category | Examples |
 |----------|----------|
@@ -12,47 +16,70 @@ This plugin uses `PreToolUse` hooks to intercept Bash commands before they run a
 | Disk operations | `mkfs.ext4`, `dd if=... of=/dev/...` |
 | Fork bombs | `:(){ :\|:& };:` |
 | Permission abuse | `chmod -R 777 /`, `chown -R ... /` |
-| Pipe execution | `curl ... \| sh`, `wget ... \| bash` |
 | System operations | `shutdown`, `reboot`, `halt`, `poweroff` |
-| Log tampering | `history -c`, `> /var/log/...` |
+
+### 2. AI-Powered Detection (Optional)
+
+When `OPENAI_API_KEY` is configured, the plugin uses GPT-4o-mini to analyze commands that pass pattern matching, catching sophisticated threats like:
+
+- Downloading and executing untrusted code
+- Obfuscated malicious commands
+- Context-aware dangerous operations (e.g., `curl ... | sh` from untrusted sources)
 
 ## Installation
 
-### Method 1: Install from Plugin Marketplace (Recommended)
+### Method 1: Add Marketplace and Install (Recommended)
 
 ```bash
-claude plugins add Virtue-AI/cowork-virtueai-plugin
+# Step 1: Add the Virtue-AI marketplace
+/plugin marketplace add Virtue-AI/cowork-virtueai-plugin
+
+# Step 2: Install the plugin
+/plugin install cowork-virtueai-plugin
 ```
 
-### Method 2: Clone and Install Manually
+Or use the interactive UI:
+1. Run `/plugin` in Claude Code or Cowork
+2. Go to **Marketplaces** tab → Add `Virtue-AI/cowork-virtueai-plugin`
+3. Go to **Discover** tab → Find and install the plugin
+
+### Method 2: Clone and Install Locally
 
 ```bash
 # Clone the repository
 git clone https://github.com/Virtue-AI/cowork-virtueai-plugin.git
 
+# Add as a local marketplace
+/plugin marketplace add ./cowork-virtueai-plugin
+
 # Install the plugin
-claude plugins add ./cowork-virtueai-plugin
+/plugin install cowork-virtueai-plugin
 ```
 
-### Method 3: Direct Download
+## Configuration
 
-1. Download this repository as a ZIP file
-2. Extract to your preferred location
-3. In Cowork, click **Plugins** → **Upload plugin** and select the extracted folder
+### Enable AI-Powered Detection (Optional)
+
+Set your OpenAI API key to enable AI-based command analysis:
+
+```bash
+export OPENAI_API_KEY='your-api-key'
+```
+
+Without the API key, the plugin still works using pattern matching only.
 
 ## How It Works
 
-The plugin registers a `PreToolUse` hook that intercepts all Bash tool calls:
-
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Claude Bash    │────▶│  PreToolUse Hook │────▶│  Execute or     │
-│  Tool Call      │     │  (this plugin)   │     │  Block Command  │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Claude Bash    │────▶│  Pattern Check   │────▶│  AI Check        │────▶│  Execute or     │
+│  Tool Call      │     │  (regex)         │     │  (GPT-4o-mini)   │     │  Ask User       │
+└─────────────────┘     └──────────────────┘     └──────────────────┘     └─────────────────┘
 ```
 
-- **Exit code 0**: Command is safe, allow execution
-- **Exit code 2**: Command is dangerous, block execution and notify Claude
+When a dangerous command is detected:
+- Returns `{"permissionDecision": "ask"}` to prompt user confirmation
+- User can review and approve/deny the command
 
 ## Plugin Structure
 
@@ -64,6 +91,7 @@ cowork-virtueai-plugin/
 │   └── hooks.json               # Hook configuration (matches Bash tool)
 ├── scripts/
 │   └── check-dangerous-cmd.sh   # Detection script
+├── LICENSE
 └── README.md
 ```
 
@@ -91,7 +119,7 @@ Edit `hooks/hooks.json` to modify which tools are intercepted:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Write",  // Match multiple tools
+        "matcher": "Bash|Write",
         "hooks": [...]
       }
     ]
@@ -101,8 +129,8 @@ Edit `hooks/hooks.json` to modify which tools are intercepted:
 
 ## Requirements
 
-- [Cowork](https://claude.com/blog/cowork-plugins) (Claude Desktop with Cowork enabled)
-- `jq` command-line tool (for JSON parsing)
+- [Claude Code](https://code.claude.com) or [Cowork](https://claude.com/blog/cowork-plugins)
+- (Optional) OpenAI API key for AI-powered detection
 
 ## License
 
@@ -111,3 +139,9 @@ MIT
 ## Contributing
 
 Issues and pull requests are welcome at [GitHub](https://github.com/Virtue-AI/cowork-virtueai-plugin).
+
+## References
+
+- [Claude Code Plugins Documentation](https://code.claude.com/docs/en/plugins-reference)
+- [Discover and Install Plugins](https://code.claude.com/docs/en/discover-plugins)
+- [Plugin Marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)
