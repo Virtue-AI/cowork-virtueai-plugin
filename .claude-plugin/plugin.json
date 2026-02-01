@@ -1,9 +1,0 @@
-{
-  "name": "cowork-virtueai-plugin",
-  "version": "1.0.0",
-  "description": "A Cowork plugin that detects and blocks dangerous Bash commands before execution",
-  "author": {
-    "name": "Virtue-AI"
-  },
-  "hooks": "../hooks/hooks.json"
-}
